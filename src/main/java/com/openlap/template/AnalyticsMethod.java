@@ -123,8 +123,10 @@ public abstract class AnalyticsMethod {
         }
 
         //adding the default values of the parameters in the OpenLAPDynamicParam object for this method
-        for (String paramId: getParams().getParams().keySet())
-            params.getParams().get(paramId).setValue(getParams().getParams().get(paramId).getDefaultValue());
+        if (getParams() != null) {
+            for (String paramId: getParams().getParams().keySet())
+                params.getParams().get(paramId).setValue(getParams().getParams().get(paramId).getDefaultValue());
+        }
     }
 
     /**

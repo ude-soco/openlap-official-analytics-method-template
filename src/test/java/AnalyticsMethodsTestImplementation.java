@@ -28,7 +28,7 @@ public class AnalyticsMethodsTestImplementation extends AnalyticsMethod {
                     OpenLAPDataColumnFactory.createOpenLAPDataColumnOfType("outputColumn1",OpenLAPColumnDataType.Numeric, false, "Output Column 1", "Output Column 1")
             );
         } catch (OpenLAPDataColumnException e) {
-            e.printStackTrace();
+            throw new IllegalStateException("Could not initialize analytics method test columns", e);
         }
     }
 
