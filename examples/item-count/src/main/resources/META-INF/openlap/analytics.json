@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "methods": [
+    {
+      "className": "org.example.openlap.ItemCount",
+      "recommendedFor": ["BASIC"],
+      "inputRoles": {
+        "items": "CATEGORY"
+      },
+      "outputHints": {
+        "item_count": { "primary": true }
+      }
+    }
+  ]
+}
