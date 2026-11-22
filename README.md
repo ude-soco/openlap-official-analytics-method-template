@@ -1,249 +1,89 @@
 # OpenLAP Analytics Method Template
 
-This repository provides the small Java library contract used to implement OpenLAP analytics methods. It is a Maven
-Java library, not a Spring Boot application.
+Use this Java library to build an analytics method for OpenLAP. A plugin JAR
+contains your calculation and defines its inputs, outputs and settings. An
+optional manifest tells OpenLAP where to recommend the method and how to
+interpret its columns.
 
-## Requirements
+## Build your first plugin
 
-- Java 8-compatible source and bytecode.
-- Maven via the included `./mvnw` wrapper.
-- `openlap-official-data-exchange-formats` version `1.2.1`.
+Use JDK 17 or 21. From this repository, build and inspect the **Item Count** example.
 
-The data-exchange library serializes column types with the current enum names `Text`, `Numeric`, and `TrueFalse`.
-For backward compatibility it also accepts legacy input names such as `STRING`, `INTEGER`, and `BOOLEAN` when
-deserializing JSON fixtures or client payloads. New examples and generated payloads should prefer the current enum names.
-
-## Analytics Method Contract
-
-An analytics method extends `com.openlap.template.AnalyticsMethod`.
-
-Implementations are expected to:
-
-- Set `input`, `output`, optional `params`, and `type` in the constructor.
-- Use `OpenLAPDataColumnFactory` for input and output columns.
-- Use `OpenLAPDynamicParams` only when the method needs runtime parameters.
-- Receive incoming data through `initialize(OpenLAPDataSet, OpenLAPPortConfig)`.
-- Receive incoming data and user parameters through `initialize(OpenLAPDataSet, OpenLAPPortConfig, Map<String, String>)`.
-- Put custom analytics logic in `implementationExecution()`.
-- Populate `getOutput()` before `execute()` returns.
-- Implement `hasPMML()` and `getPMMLInputStream()`; return `false` and `null` when PMML is not used.
-
-The usual lifecycle is:
-
-1. Construct the analytics method.
-2. Call `initialize(...)` to validate and map the input dataset into the method input ports.
-3. Call `execute()`.
-4. Read the returned `OpenLAPDataSet`.
-
-## Maven Dependency
-
-This template currently depends on:
-
-```xml
-<dependency>
-    <groupId>com.github.ude-soco</groupId>
-    <artifactId>openlap-official-data-exchange-formats</artifactId>
-    <version>1.2.1</version>
-</dependency>
+```sh
+./mvnw -f examples/item-count/pom.xml clean package
+jar tf examples/item-count/target/item-count-1.0.0.jar
 ```
 
-The JitPack repository must be available:
+The JAR contains `org/example/openlap/ItemCount.class` and
+`META-INF/openlap/analytics.json`.
 
-```xml
-<repositories>
-    <repository>
-        <id>jitpack.io</id>
-        <url>https://jitpack.io</url>
-    </repository>
-</repositories>
-```
+- **Local test**. Copy the JAR to the backend's `jars/analytics_techniques/`
+  directory and restart the backend. If the backend uses `DATA_DIR`, use the
+  `jars/analytics_techniques/` directory inside it.
+- **Managed OpenLAP**. An administrator can start a new installation under
+  **Admin Dashboard → Analytics Methods → Add analytics methods**.
 
-## Example Analytics Method
+In a Basic Indicator, select a dataset, choose **Item Count**, and map
+**Items List** to a text value such as the activity name. You can set
+**Number of items to return** in the method settings.
 
-The following example counts item occurrences. It uses Java 8-compatible syntax and fails clearly if constructor setup
-cannot create columns or dynamic parameters.
+## Create a method
 
-```java
-package com.openlap.AnalyticsMethods.Prototypes;
+1. Copy the example project to your own directory and edit its Maven
+   coordinates. Match the API dependency versions to your OpenLAP backend.
+   Maven's `provided` scope lets OpenLAP supply the shared Java classes at
+   runtime. [Example POM](examples/item-count/pom.xml)
+2. Extend `com.openlap.template.AnalyticsMethod` in a public class with a public
+   no-argument constructor. Define the columns and any parameters in the
+   constructor, then write the calculation in `implementationExecution()`.
+   [Item Count source](examples/item-count/src/main/java/org/example/openlap/ItemCount.java)
+3. Update the optional manifest to match your class and its column IDs. Keep
+   it at `src/main/resources/META-INF/openlap/analytics.json`.
+   [Example manifest](examples/item-count/src/main/resources/META-INF/openlap/analytics.json)
+4. Run `mvn clean package` from your project. The plugin JAR is in `target/`.
 
-import com.openlap.dataset.OpenLAPColumnDataType;
-import com.openlap.dataset.OpenLAPDataColumnFactory;
-import com.openlap.dataset.OpenLAPDataSet;
-import com.openlap.dynamicparam.OpenLAPDynamicParam;
-import com.openlap.dynamicparam.OpenLAPDynamicParamDataType;
-import com.openlap.dynamicparam.OpenLAPDynamicParamFactory;
-import com.openlap.dynamicparam.OpenLAPDynamicParamType;
-import com.openlap.dynamicparam.OpenLAPDynamicParams;
-import com.openlap.exceptions.OpenLAPDataColumnException;
-import com.openlap.exceptions.OpenLAPDynamicParamException;
-import com.openlap.template.AnalyticsMethod;
+| Where | What to define |
+| --- | --- |
+| Java method | Method name and description, calculation, input and output column IDs, titles, descriptions, types and required flags. Define parameter labels, defaults and choices here too. |
+| Optional manifest | Which indicator editors to recommend the method in, what each input represents, and how to display important outputs. |
+| OpenLAP | Available xAPI fields, learner privacy, validation of mappings and combining indicator results. |
 
-import java.io.InputStream;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
+### Java method
 
-public class ItemCount extends AnalyticsMethod {
+Use `OpenLAPDataColumnFactory` to define columns as `Text`, `Numeric` or
+`TrueFalse`. Keep column IDs stable so users can reopen saved mappings.
+Initialize `OpenLAPDynamicParams`, using an empty collection when the method
+has no settings. OpenLAP calls `initialize(...)` to map input values and apply
+settings. It then calls `execute()`, which returns the output dataset filled
+by your method.
 
-    public ItemCount() {
-        setInput(new OpenLAPDataSet());
-        setOutput(new OpenLAPDataSet());
-        setParams(new OpenLAPDynamicParams());
-        setType("normal");
+In a mapping, `outputPort` refers to a source column and `inputPort` refers to
+your method's input column. In the example, the source column containing
+activity names is mapped to the method's `items` input.
 
-        try {
-            getInput().addOpenLAPDataColumn(
-                    OpenLAPDataColumnFactory.createOpenLAPDataColumnOfType(
-                            "items",
-                            OpenLAPColumnDataType.Text,
-                            true,
-                            "Items List",
-                            "List of items to count"));
+For a method that uses PMML, return `true` from `hasPMML()` and supply an input
+stream for the packaged PMML file from `getPMMLInputStream()`. The Item Count
+example returns `false` and `null`.
 
-            getOutput().addOpenLAPDataColumn(
-                    OpenLAPDataColumnFactory.createOpenLAPDataColumnOfType(
-                            "item_name",
-                            OpenLAPColumnDataType.Text,
-                            false,
-                            "Item Names",
-                            "Counted item names"));
+### Optional manifest
 
-            getOutput().addOpenLAPDataColumn(
-                    OpenLAPDataColumnFactory.createOpenLAPDataColumnOfType(
-                            "item_count",
-                            OpenLAPColumnDataType.Numeric,
-                            false,
-                            "Item Count",
-                            "Number of times each item occurred"));
+Set `schemaVersion` to `1` and add one entry under `methods` for each method you
+want to describe. `className` is the full Java class name, including its
+package. Match the input and output IDs to those in the Java constructor.
 
-            getParams().addOpenLAPDynamicParam(
-                    OpenLAPDynamicParamFactory.createOpenLAPDataColumnOfType(
-                            "return_count",
-                            OpenLAPDynamicParamType.Textbox,
-                            OpenLAPDynamicParamDataType.INTEGER,
-                            "Number of items to return",
-                            "Maximum number of counted items to return",
-                            10,
-                            "",
-                            false));
-        } catch (OpenLAPDataColumnException exception) {
-            throw new IllegalStateException("Could not initialize ItemCount columns", exception);
-        } catch (OpenLAPDynamicParamException exception) {
-            throw new IllegalStateException("Could not initialize ItemCount parameters", exception);
-        }
-    }
+| Field | What it does |
+| --- | --- |
+| `recommendedFor` | Lists `BASIC`, `MULTI_LEVEL`, or both. These labels help people find a method. The Java input definitions govern which columns can be mapped. |
+| `inputRoles` | Describes an input as `EVENTS`, `CATEGORY`, `TIMESTAMP`, `SCORE`, or `OUTCOME`. OpenLAP uses the roles to check which fields could supply the required data. |
+| `outputHints` | Use `primary: true` for a main measure. Use `format: "PERCENTAGE"` for numeric percentages on the 0–100 scale. A `role` can identify `X`, `Y`, `LABEL` or `CLUSTER` columns. `labelFromInput` takes the input ID whose selected source label should appear on the output. |
+| `outputHints.<output ID>.diagnostic` | Describes a count of `INCLUDED`, `EXCLUDED`, or `UNGROUPED` rows. Use `aggregation: "ONCE"` for a whole-result count repeated on each row or `"SUM"` for counts that should be added together. Set `summaryOnly: true` to display the count in a summary. An optional `input` names the associated method input. |
 
-    @Override
-    protected void implementationExecution() {
-        LinkedHashMap<String, Integer> counts = new LinkedHashMap<String, Integer>();
-        List<?> items = getInput().getColumns().get("items").getData();
+In the example, the manifest recommends Item Count in Basic Indicator, gives
+`items` the category role, and marks `item_count` as the main measure. Older
+plugins can continue using their Java definitions alone.
 
-        for (Object item : items) {
-            String itemName = String.valueOf(item);
-            Integer currentCount = counts.get(itemName);
-            counts.put(itemName, currentCount == null ? 1 : currentCount + 1);
-        }
+## Develop the template library
 
-        OpenLAPDynamicParam<?> returnCountParam = getParams().getParams().get("return_count");
-        int returnCount = ((Number) returnCountParam.getValue()).intValue();
-
-        for (Map.Entry<String, Integer> entry : counts.entrySet()) {
-            if (returnCount == 0) {
-                break;
-            }
-
-            getOutput().getColumns().get("item_name").getData().add(entry.getKey());
-            getOutput().getColumns().get("item_count").getData().add(entry.getValue());
-            returnCount--;
-        }
-    }
-
-    @Override
-    public Boolean hasPMML() {
-        return false;
-    }
-
-    @Override
-    public InputStream getPMMLInputStream() {
-        return null;
-    }
-
-    @Override
-    public String getAnalyticsMethodName() {
-        return "Item Count";
-    }
-
-    @Override
-    public String getAnalyticsMethodDescription() {
-        return "Counts item occurrences in a text column.";
-    }
-
-    @Override
-    public String getAnalyticsMethodCreator() {
-        return "Developer Name";
-    }
-}
-```
-
-## Input Mapping
-
-`initialize(...)` uses `OpenLAPPortConfig` to map source dataset columns into the method input columns. The
-`outputPort` in each mapping refers to a column in the incoming dataset. The `inputPort` refers to the analytics
-method input column.
-
-```json
-{
-  "mapping": [
-    {
-      "outputPort": {
-        "type": "Text",
-        "id": "incoming_items",
-        "required": true
-      },
-      "inputPort": {
-        "type": "Text",
-        "id": "items",
-        "required": true
-      }
-    }
-  ]
-}
-```
-
-Older JSON using `"STRING"` for text or `"INTEGER"` for numeric values is still accepted by
-`openlap-official-data-exchange-formats` `1.2.1`, but new JSON should use `"Text"`, `"Numeric"`, and `"TrueFalse"`.
-
-## PMML
-
-PMML is optional. If an analytics method does not use PMML, implement:
-
-```java
-@Override
-public Boolean hasPMML() {
-    return false;
-}
-
-@Override
-public InputStream getPMMLInputStream() {
-    return null;
-}
-```
-
-If `hasPMML()` returns `true`, `getPMMLInputStream()` should return an input stream for the PMML file packaged with the
-analytics method JAR.
-
-## Development
-
-Run the tests with:
-
-```bash
-./mvnw clean test
-```
-
-Inspect dependencies with:
-
-```bash
-./mvnw dependency:tree
-```
-
-The project intentionally keeps Java 8 source/target compatibility for now.
+From this repository, run its tests with `./mvnw clean test`. Use
+`./mvnw dependency:tree` to inspect the library's dependencies. The library
+targets Java 8 bytecode.
